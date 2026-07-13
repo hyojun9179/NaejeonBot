@@ -104,10 +104,10 @@ class Program
         }
 
         // 임베드 메세지 디자인 생성
-        string boldTitle = "# 📢 내전 모집";
-        string descriptionText = $"### 📅 일시: {data_date} {data_time}\n" +
-                                 $"### ⏱️ 알림 설정: {data_timer}시간 뒤 주최자 호출\n\n" +
-                                 $"# 🎮 내용: {data_content}\n\n" +
+        string boldTitle = "#내전 모집";
+        string descriptionText = $"### 일시: {data_date} {data_time}\n" +
+                                 $"### 알림 설정: {data_timer}시간 뒤 주최자 호출\n\n" +
+                                 $"# 내용: {data_content}\n\n" +
                                  $"아래 **[참여하기]** 버튼을 눌러 명단에 등록하세요!";
 
         var embed = new EmbedBuilder()
