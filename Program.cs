@@ -27,10 +27,34 @@ class Program
         _client.ButtonExecuted += ButtonExecutedAsync; // 버튼 클릭 처리
 
         string token = Environment.GetEnvironmentVariable("DISCORD_TOKEN") ?? "YOUR_BOT_TOKEN_HERE";
-        await _client.LoginAsync(TokenType.Bot, token);
-        await _client.StartAsync();
+    await _client.LoginAsync(TokenType.Bot, token);
+    await _client.StartAsync();
 
-        await Task.Delay(-1);
+    // 💡 Render의 포트 감시를 속이기 위한 무료 전용 가짜 웹서버 코드!
+_   = Task.Run(() =>
+    {
+    try
+    {
+        string port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+        var listener = new System.Net.HttpListener();
+        listener.Prefixes.Add($"http://*:{port}/");
+        listener.Start();
+        Console.WriteLine($"🌐 가짜 웹 서버가 {port} 포트에서 작동 중입니다. (무료 우회용)");
+        while (true)
+        {
+            var context = listener.GetContext();
+            context.Response.StatusCode = 200;
+            using (var writer = new System.IO.StreamWriter(context.Response.OutputStream))
+            {
+                writer.Write("Bot is Running!");
+            }
+            context.Response.Close();
+        }
+    }
+    catch (Exception ex) { Console.WriteLine($"웹 서버 에러: {ex.Message}"); }
+});
+
+await Task.Delay(-1);
     }
 
     private Task LogAsync(LogMessage log) { Console.WriteLine(log.ToString()); return Task.CompletedTask; }
