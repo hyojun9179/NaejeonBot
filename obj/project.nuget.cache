@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "dgSpecHash": "WF6i+1zYxiU=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\5600\\.vscode\\NaejeonBot\\NaejeonBot.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\5600\\.nuget\\packages\\discord.net\\3.20.1\\discord.net.3.20.1.nupkg.sha512",
+    "C:\\Users\\5600\\.nuget\\packages\\discord.net.commands\\3.20.1\\discord.net.commands.3.20.1.nupkg.sha512",
+    "C:\\Users\\5600\\.nuget\\packages\\discord.net.core\\3.20.1\\discord.net.core.3.20.1.nupkg.sha512",
+    "C:\\Users\\5600\\.nuget\\packages\\discord.net.dave\\3.20.1\\discord.net.dave.3.20.1.nupkg.sha512",
+    "C:\\Users\\5600\\.nuget\\packages\\discord.net.interactions\\3.20.1\\discord.net.interactions.3.20.1.nupkg.sha512",
+    "C:\\Users\\5600\\.nuget\\packages\\discord.net.rest\\3.20.1\\discord.net.rest.3.20.1.nupkg.sha512",
+    "C:\\Users\\5600\\.nuget\\packages\\discord.net.webhook\\3.20.1\\discord.net.webhook.3.20.1.nupkg.sha512",
+    "C:\\Users\\5600\\.nuget\\packages\\discord.net.websocket\\3.20.1\\discord.net.websocket.3.20.1.nupkg.sha512",
+    "C:\\Users\\5600\\.nuget\\packages\\microsoft.extensions.dependencyinjection.abstractions\\10.0.0\\microsoft.extensions.dependencyinjection.abstractions.10.0.0.nupkg.sha512",
+    "C:\\Users\\5600\\.nuget\\packages\\newtonsoft.json\\13.0.4\\newtonsoft.json.13.0.4.nupkg.sha512"
+  ],
+  "logs": []
+}
