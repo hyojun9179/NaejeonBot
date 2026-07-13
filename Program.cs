@@ -92,52 +92,6 @@ class Program
     // 2. 사용자가 슬래시 명령어를 쳤을 때 처리
     private async Task SlashCommandHandler(SocketSlashCommand command)
     {
-        // ---------------- [청소 명령어 처리] ----------------
-        if (command.CommandName == "청소")
-        {
-            await command.DeferAsync(ephemeral: true); // 관리자 화면에만 결과가 보이게 처리
-
-            var user = command.User as SocketGuildUser;
-            if (user == null) return;
-
-            // 관리자 권한 확인 (메시지 관리 권한이 있는 사람만 허용)
-            if (!user.GuildPermissions.ManageMessages)
-            {
-                await command.FollowupAsync("❌ 권한이 없습니다. '메시지 관리' 권한이 필요합니다.", ephemeral: true);
-                return;
-            }
-
-            long deleteCount = (long)command.Data.Options.GetEnumerator().Current.Value; // 개수 가져오기
-            // 안전망 설정: 첫 번째 옵션 직접 매칭
-            foreach (var opt in command.Data.Options)
-            {
-                if (opt.Name == "개수") deleteCount = (long)opt.Value;
-            }
-
-            if (deleteCount < 1 || deleteCount > 100)
-            {
-                await command.FollowupAsync("❌ 메시지는 1개부터 100개까지만 한 번에 삭제할 수 있습니다.", ephemeral: true);
-                return;
-            }
-
-            var channel = command.Channel as ITextChannel;
-            if (channel != null)
-            {
-                try
-                {
-                    // 디스코드 정책상 14일이 지난 메시지는 벌크 삭제가 안 되므로 안전하게 가져와서 삭제
-                    var messages = await channel.GetMessagesAsync((int)deleteCount).FlattenAsync();
-                    await channel.DeleteMessagesAsync(messages);
-                    await command.FollowupAsync($"✅ 성공적으로 {deleteCount}개의 메시지를 삭제했습니다!", ephemeral: true);
-                }
-                catch (Exception ex)
-                {
-                    await command.FollowupAsync($"❌ 삭제 중 오류 발생: {ex.Message}\n(디스코드 규정상 2주가 지난 메시지는 봇이 지울 수 없습니다.)", ephemeral: true);
-                }
-            }
-            return;
-        }
-
         // ---------------- [기존 내전 명령어 처리] ----------------
         if (command.CommandName != "내전") return;
 
