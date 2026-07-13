@@ -26,7 +26,7 @@ class Program
         _client.SlashCommandExecuted += SlashCommandHandler; // 슬래시 명령어 입력 처리
         _client.ButtonExecuted += ButtonExecutedAsync; // 버튼 클릭 처리
 
-        string token = "YOUR_BOT_TOKEN_HERE"; // 🔐 여기에 진짜 디스코드 봇 토큰을 넣으세요!
+        string token = Environment.GetEnvironmentVariable("DISCORD_TOKEN") ?? "YOUR_BOT_TOKEN_HERE";
         await _client.LoginAsync(TokenType.Bot, token);
         await _client.StartAsync();
 
