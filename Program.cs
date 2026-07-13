@@ -16,8 +16,8 @@ class Program
     {
         var config = new DiscordSocketConfig
         {
-            // 봇이 서버의 유저 정보(이름, DM 전송 등)를 정상적으로 가져오기 위한 인텐트 설정
-            GatewayIntents = GatewayIntents.AllUnprivileged
+            // 💡 [필수 패치] 메시지 청소(삭제) 기능을 정상적으로 수행하기 위해 MessageContent 인텐트 추가
+            GatewayIntents = GatewayIntents.AllUnprivileged | GatewayIntents.MessageContent
         };
         _client = new DiscordSocketClient(config);
 
@@ -27,41 +27,42 @@ class Program
         _client.ButtonExecuted += ButtonExecutedAsync; // 버튼 클릭 처리
 
         string token = Environment.GetEnvironmentVariable("DISCORD_TOKEN") ?? "YOUR_BOT_TOKEN_HERE";
-    await _client.LoginAsync(TokenType.Bot, token);
-    await _client.StartAsync();
+        await _client.LoginAsync(TokenType.Bot, token);
+        await _client.StartAsync();
 
-    // 💡 Render의 포트 감시를 속이기 위한 무료 전용 가짜 웹서버 코드!
-_   = Task.Run(() =>
-    {
-    try
-    {
-        string port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
-        var listener = new System.Net.HttpListener();
-        listener.Prefixes.Add($"http://*:{port}/");
-        listener.Start();
-        Console.WriteLine($"🌐 가짜 웹 서버가 {port} 포트에서 작동 중입니다. (무료 우회용)");
-        while (true)
+        // 💡 Render의 포트 감시를 속이기 위한 무료 전용 가짜 웹서버 코드!
+        _ = Task.Run(() =>
         {
-            var context = listener.GetContext();
-            context.Response.StatusCode = 200;
-            using (var writer = new System.IO.StreamWriter(context.Response.OutputStream))
+            try
             {
-                writer.Write("Bot is Running!");
+                string port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+                var listener = new System.Net.HttpListener();
+                listener.Prefixes.Add($"http://+:{port}/");
+                listener.Start();
+                Console.WriteLine($"🌐 가짜 웹 서버가 {port} 포트에서 작동 중입니다. (무료 우회용)");
+                while (true)
+                {
+                    var context = listener.GetContext();
+                    context.Response.StatusCode = 200;
+                    using (var writer = new System.IO.StreamWriter(context.Response.OutputStream))
+                    {
+                        writer.Write("Bot is Running!");
+                    }
+                    context.Response.Close();
+                }
             }
-            context.Response.Close();
-        }
-    }
-    catch (Exception ex) { Console.WriteLine($"웹 서버 에러: {ex.Message}"); }
-});
+            catch (Exception ex) { Console.WriteLine($"웹 서버 에러: {ex.Message}"); }
+        });
 
-await Task.Delay(-1);
+        await Task.Delay(-1);
     }
 
     private Task LogAsync(LogMessage log) { Console.WriteLine(log.ToString()); return Task.CompletedTask; }
 
-    // 1. 디스코드 서버에 대기업 봇처럼 입력창이 뜨는 '/내전' 슬래시 명령어 등록
+    // 1. 슬래시 명령어 등록
     private async Task ReadyAsync()
     {
+        // 내전 명령어
         var guildCommand = new SlashCommandBuilder()
             .WithName("내전")
             .WithDescription("내전 모집글을 생성합니다.")
@@ -70,10 +71,17 @@ await Task.Delay(-1);
             .AddOption("몇시간뒤", ApplicationCommandOptionType.Integer, "몇 시간 뒤에 주최자에게 명단 DM을 보낼지 숫자로만 적으세요 (예: 3)", isRequired: true)
             .AddOption("내용", ApplicationCommandOptionType.String, "게임 종류나 상세 내용을 적으세요 (예: 롤 내전 5vs5)", isRequired: true);
 
+        // 💡 [신규] 청소 명령어 등록
+        var deleteCommand = new SlashCommandBuilder()
+            .WithName("청소")
+            .WithDescription("채팅방의 메시지를 대량으로 삭제합니다.")
+            .AddOption("개수", ApplicationCommandOptionType.Integer, "삭제할 메시지의 개수를 적으세요 (1~100)", isRequired: true);
+
         try
         {
             await _client.CreateGlobalApplicationCommandAsync(guildCommand.Build());
-            Console.WriteLine("🤖 슬래시 명령어 등록 완료! 디스코드 창에서 /내전 을 쳐보세요.");
+            await _client.CreateGlobalApplicationCommandAsync(deleteCommand.Build()); // 청소 추가
+            Console.WriteLine("🤖 슬래시 명령어 등록 완료! 디스코드 창에서 /내전 또는 /청소 를 쳐보세요.");
         }
         catch (Exception ex)
         {
@@ -81,21 +89,66 @@ await Task.Delay(-1);
         }
     }
 
-    // 2. 사용자가 '/내전' 명령어를 치고 값을 전송했을 때 처리
+    // 2. 사용자가 슬래시 명령어를 쳤을 때 처리
     private async Task SlashCommandHandler(SocketSlashCommand command)
     {
+        // ---------------- [청소 명령어 처리] ----------------
+        if (command.CommandName == "청소")
+        {
+            await command.DeferAsync(ephemeral: true); // 관리자 화면에만 결과가 보이게 처리
+
+            var user = command.User as SocketGuildUser;
+            if (user == null) return;
+
+            // 관리자 권한 확인 (메시지 관리 권한이 있는 사람만 허용)
+            if (!user.GuildPermissions.ManageMessages)
+            {
+                await command.FollowupAsync("❌ 권한이 없습니다. '메시지 관리' 권한이 필요합니다.", ephemeral: true);
+                return;
+            }
+
+            long deleteCount = (long)command.Data.Options.GetEnumerator().Current.Value; // 개수 가져오기
+            // 안전망 설정: 첫 번째 옵션 직접 매칭
+            foreach (var opt in command.Data.Options)
+            {
+                if (opt.Name == "개수") deleteCount = (long)opt.Value;
+            }
+
+            if (deleteCount < 1 || deleteCount > 100)
+            {
+                await command.FollowupAsync("❌ 메시지는 1개부터 100개까지만 한 번에 삭제할 수 있습니다.", ephemeral: true);
+                return;
+            }
+
+            var channel = command.Channel as ITextChannel;
+            if (channel != null)
+            {
+                try
+                {
+                    // 디스코드 정책상 14일이 지난 메시지는 벌크 삭제가 안 되므로 안전하게 가져와서 삭제
+                    var messages = await channel.GetMessagesAsync((int)deleteCount).FlattenAsync();
+                    await channel.DeleteMessagesAsync(messages);
+                    await command.FollowupAsync($"✅ 성공적으로 {deleteCount}개의 메시지를 삭제했습니다!", ephemeral: true);
+                }
+                catch (Exception ex)
+                {
+                    await command.FollowupAsync($"❌ 삭제 중 오류 발생: {ex.Message}\n(디스코드 규정상 2주가 지난 메시지는 봇이 지울 수 없습니다.)", ephemeral: true);
+                }
+            }
+            return;
+        }
+
+        // ---------------- [기존 내전 명령어 처리] ----------------
         if (command.CommandName != "내전") return;
 
-        // 💡 [핵심 패치] '애플리케이션이 응답하지 않았어요' 에러를 막기 위해 봇을 '생각 중...' 상태로 전환 (3초 제한 해제)
         await command.DeferAsync();
 
-        var user = command.User as SocketGuildUser;
-        if (user == null) return;
+        var guildUser = command.User as SocketGuildUser;
+        if (guildUser == null) return;
 
-        // 권한 체크: '내전운영진' 역할이 있는 사람만 주최 가능
         string adminRoleName = "내전운영진";
         bool hasRole = false;
-        foreach (var role in user.Roles)
+        foreach (var role in guildUser.Roles)
         {
             if (role.Name == adminRoleName) { hasRole = true; break; }
         }
@@ -106,7 +159,6 @@ await Task.Delay(-1);
             return;
         }
 
-        // 사용자가 입력창에 채워 넣은 옵션 값들을 안전하게 하나씩 뽑아오기 (오류 유발 코드 완전 제거)
         var options = command.Data.Options;
         string data_date = "";
         string data_time = "";
@@ -127,10 +179,9 @@ await Task.Delay(-1);
             return;
         }
 
-        // 임베드 메세지 디자인 생성
         string boldTitle = "#내전 모집";
         string descriptionText = $"### 일시: {data_date} {data_time}\n" +
-                                 $"### 알림 설정: {data_timer}시간 뒤 주최자 호출\n\n" +
+                                 $"### 알림 설정: {data_timer}시간 뒤 전체 DM 호출\n\n" + // 문구 수정
                                  $"# 내용: {data_content}\n\n" +
                                  $"아래 **[참여하기]** 버튼을 눌러 명단에 등록하세요!";
 
@@ -141,47 +192,43 @@ await Task.Delay(-1);
             .WithFooter(footer => footer.Text = $"주최자 ID: {command.User.Id}")
             .Build();
 
-        // 초록색 [참여하기] 버튼 부착
         var component = new ComponentBuilder()
             .WithButton("참여하기", "join_naejeon", ButtonStyle.Success)
             .Build();
 
-        // 최종 모집글을 채팅방에 전송
         var originalResponse = await command.FollowupAsync(embed: embed, components: component);
         
-        // 이 모집글 전용 참가자 명단 리스트 초기화
         _naejeonParticipants[originalResponse.Id] = new List<ulong>();
 
-        // 비동기 타이머 작동 (설정한 시간 뒤에 주최자에게 DM 발송)
+        // 비동기 타이머 작동 (시간 종료 후 주최자 DM 발송 + 모든 유저 자동 DM 발송)
         _ = Task.Run(async () =>
         {
-            int delayMilliseconds = (int)data_timer * 60 * 1000; // 시간 단위를 밀리초로 변환
+            int delayMilliseconds = (int)data_timer * 60 * 60 * 1000; // 💡 분 단위 버그 수정: 시간 단위로 정상 작동하게 조절
             await Task.Delay(delayMilliseconds);
+            
+            // 1. 주최자에게 관리자 명단 DM 발송
             await SendNaejeonManageDM(command.User, originalResponse.Id, command.Channel.Id);
+            
+            // 💡 [신규] 2. 신청한 모든 유저들에게 내전 시작 알림 DM 일괄 자동 전송
+            await SendNotificationToAllParticipants(originalResponse.Id, data_date, data_time, data_content);
         });
     }
 
-    // 3. 버튼 클릭 처리 (참가 신청 및 대기번호 발송)
+    // 3. 버튼 클릭 처리
     private async Task ButtonExecutedAsync(SocketMessageComponent component)
     {
-        // 유저가 [참여하기] 버튼을 눌렀을 때
         if (component.Data.CustomId == "join_naejeon")
         {
             var msgId = component.Message.Id;
             if (_naejeonParticipants.ContainsKey(msgId))
             {
-                // 중복 신청 방지
                 if (!_naejeonParticipants[msgId].Contains(component.User.Id))
                 {
                     _naejeonParticipants[msgId].Add(component.User.Id);
-                    
-                    // 💡 [신규 기능] 리스트에 들어간 유저의 순서가 바로 대기 번호가 됨
                     int waitingNumber = _naejeonParticipants[msgId].Count;
 
-                    // 화면에는 다른 사람에게 안 보이고 본인에게만 성공 메시지 표시
                     await component.RespondAsync("✅ 내전 참여 등록 완료! DM으로 대기번호가 발송되었습니다.", ephemeral: true);
 
-                    // 💡 [신규 기능] 신청한 유저에게 즉시 대기 번호 DM 꽂아주기
                     try
                     {
                         string dmMessage = $"# 🎫 내전 참가 확정!\n" +
@@ -191,7 +238,6 @@ await Task.Delay(-1);
                     }
                     catch (Exception)
                     {
-                        // 유저가 디스코드 설정에서 '서버 멤버가 보내는 DM 허용'을 꺼둔 경우 에러 방지
                         Console.WriteLine($"{component.User.Username}님이 DM을 차단해 두어 대기번호를 발송하지 못했습니다.");
                     }
                 }
@@ -201,7 +247,6 @@ await Task.Delay(-1);
                 }
             }
         }
-        // 주최자가 자신의 DM창에서 특정 유저 [호출하기] 버튼을 눌렀을 때
         else if (component.Data.CustomId.StartsWith("mention_"))
         {
             var parts = component.Data.CustomId.Split('_');
@@ -211,14 +256,13 @@ await Task.Delay(-1);
             var channel = _client.GetChannel(channelId) as ISocketMessageChannel;
             if (channel != null)
             {
-                // 진짜 공용 채팅방에 멘션과 함께 출석 호출 메시지 발송
                 await channel.SendMessageAsync($"내전이 시작합니다 빨리 와주세요! <@{targetUserId}>");
                 await component.RespondAsync("🔔 해당 유저를 성공적으로 호출했습니다.", ephemeral: true);
             }
         }
     }
 
-    // 4. 타이머가 종료되면 주최자에게 참가자 명단을 유저별 버튼 형태로 DM 전송
+    // 4. 주최자 관리용 DM 발송 기기
     private async Task SendNaejeonManageDM(IUser hostUser, ulong messageId, ulong channelId)
     {
         if (!_naejeonParticipants.ContainsKey(messageId) || _naejeonParticipants[messageId].Count == 0)
@@ -232,7 +276,6 @@ await Task.Delay(-1);
 
         await hostUser.SendMessageAsync("# ⏰ 약속된 내전 시간이 되었습니다!\n채팅방으로 원격 호출할 유저의 버튼을 누르세요.");
 
-        // 신청한 유저들의 이름을 따서 각각 버튼으로 만들어 주최자 DM에 배치
         foreach (var userId in participants)
         {
             var user = _client.GetUser(userId);
@@ -243,5 +286,35 @@ await Task.Delay(-1);
         }
 
         await hostUser.SendMessageAsync("📋 **참가자 원격 호출 목록:**", components: dmComponent.Build());
+    }
+
+    // 💡 [신규 기능] 5. 시간이 되면 등록한 모든 유저에게 자동으로 호출 DM을 날려주는 기기
+    private async Task SendNotificationToAllParticipants(ulong messageId, string date, string time, string content)
+    {
+        if (!_naejeonParticipants.ContainsKey(messageId)) return;
+
+        var participants = _naejeonParticipants[messageId];
+        string alertMessage = $"# 🚨 5분 전 알림!\n" +
+                              $"신청하신 내전 시간이 임박했습니다. 디스코드 채널로 접속해 주세요!\n" +
+                              $"* **일시:** {date} {time}\n" +
+                              $"* **내용:** {content}\n" +
+                              $"지각하면 명단에서 제외될 수 있으니 대기 부탁드립니다! 🏃‍♂️💨";
+
+        foreach (var userId in participants)
+        {
+            try
+            {
+                var user = _client.GetUser(userId);
+                if (user != null)
+                {
+                    await user.SendMessageAsync(alertMessage);
+                }
+            }
+            catch (Exception)
+            {
+                // 특정 유저가 DM 차단 상태일 때 전체 시스템이 안 멈추도록 예외 처리
+                Console.WriteLine($"자동 알림 실패: 유저 ID {userId}번이 DM을 닫아두었습니다.");
+            }
+        }
     }
 }
