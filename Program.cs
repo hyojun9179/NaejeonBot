@@ -62,15 +62,13 @@ class Program
 
     private Task LogAsync(LogMessage log) { Console.WriteLine(log.ToString()); return Task.CompletedTask; }
 
-    // 1. 디스코드 슬래시 명령어들을 등록 (/내전, /내전시작, /게임끝, /게임쫑)
 // 1. 디스코드 서버에 대기업 봇처럼 입력창이 뜨는 슬래시 명령어 등록 (기존 명령어 초기화 포함)
     private async Task ReadyAsync()
     {
         try
         {
-            // 💡 [핵심 패치] 디스코드 서버에 등록되어 있던 기존 글로벌 명령어들을 전부 삭제하여 초기화합니다.
-            // 이 작업을 해주어야 더 이상 쓰지 않는 '/청소' 같은 명령어들이 완전히 사라집니다!
-            await _client.BulkOverwriteGlobalApplicationCommandsAsync(new ArraySegment<ApplicationCommandProperties>());
+            // 💡 [타입 오류 수정 완료] 빈 배열(Array.Empty) 형태로 전달하여 기존 글로벌 명령어들을 깨끗이 지웁니다.
+            await _client.BulkOverwriteGlobalApplicationCommandsAsync(Array.Empty<ApplicationCommandProperties>());
             Console.WriteLine("🧹 기존 글로벌 명령어 목록을 깨끗하게 청소했습니다!");
 
             // 새로 사용할 명령어 목록 구성
