@@ -23,8 +23,13 @@ class Program
         "초원", "우망", "레카", "영식", "우노", "쿠쿠", "효준"
     };
 
-    // 첫 교체혈전을 이미 사용한 유저 목록
-    private readonly HashSet<string> _firstTimerUsed = new HashSet<string>();
+    // 💡 초기 22명은 이미 '첫 교체혈전 찬스'를 사용한 것으로 설정 (신규 멤버만 찬스 부여)
+    private readonly HashSet<string> _firstTimerUsed = new HashSet<string>
+    {
+        "준", "재동", "김치", "대웅", "고래", "지원", "승현", "리스", 
+        "하루비", "혁", "윤", "제이크", "예은", "네보", "투스", 
+        "초원", "우망", "레카", "영식", "우노", "쿠쿠", "효준"
+    };
 
     // 주차별(주간) 대결 기록: Key = "년도-주차_도전자_피도전자"
     private readonly HashSet<string> _weeklyMatchHistory = new HashSet<string>();
@@ -123,7 +128,7 @@ class Program
                 .WithDescription("교체혈전 결과를 입력하여 순위를 갱신합니다. (운영진 전용)")
                 .AddOption("승리자", ApplicationCommandOptionType.String, "승리한 사람 이름", isRequired: true)
                 .AddOption("패배자", ApplicationCommandOptionType.String, "패배한 사람 이름", isRequired: true)
-                .AddOption("첫교체패배여부", ApplicationCommandOptionType.Boolean, "도전자가 '첫 교체혈전'에서 패배했나요?", isRequired: false);
+                .AddOption("첫교체패배여부", ApplicationCommandOptionType.Boolean, "신규 유저가 '첫 교체혈전'에서 패배했나요?", isRequired: false);
 
             var addMemberCmd = new SlashCommandBuilder()
                 .WithName("교체멤버추가")
@@ -229,7 +234,8 @@ class Program
             string rankText = "";
             for (int i = 0; i < _ladderRanks.Count; i++)
             {
-                string firstTimerBadge = _firstTimerUsed.Contains(_ladderRanks[i]) ? "" : " 🔰(첫혈전 미사용)";
+                // 찬스를 아직 안 쓴 신규 멤버만 뱃지 표시
+                string firstTimerBadge = !_firstTimerUsed.Contains(_ladderRanks[i]) ? " 🔰(신규 첫혈전 찬스)" : "";
                 rankText += $"**{i + 1}위**: {_ladderRanks[i]}{firstTimerBadge}\n";
             }
 
@@ -237,7 +243,7 @@ class Program
                 .WithTitle("🏆 교체혈전 현재 순위표")
                 .WithDescription(rankText)
                 .WithColor(Color.Gold)
-                .WithFooter(footer => footer.Text = "월요일마다 일주일 1회 신청제한이 초기화됩니다.")
+                .WithFooter(footer => footer.Text = "월요일마다 동일인물 재신청 제한이 초기화됩니다.")
                 .Build();
 
             command.FollowupAsync(embed: embed);
@@ -283,12 +289,12 @@ class Program
                 return;
             }
 
-            // 8. 첫 교체혈전 여부 확인
+            // 8. 신규 참가자 찬스 사용 여부 확인
             bool isFirstTimer = !_firstTimerUsed.Contains(challenger);
 
             if (!isFirstTimer)
             {
-                // 1. 위로 5단계 이하 제한 검증 (첫 혈전이 아닌 경우)
+                // 1. 위로 5단계 이하 제한 검증 (기존 유저 및 찬스 사용 완료 유저)
                 int diff = challengerIdx - defenderIdx;
                 if (diff <= 0)
                 {
@@ -305,7 +311,7 @@ class Program
             // 대결 신청 기록 추가
             _weeklyMatchHistory.Add(matchKey);
 
-            string firstTimeNotice = isFirstTimer ? "🔰 **[첫 교체혈전 찬스 사용!]** 순위 제한 없이 신청되었습니다! (패배 시 맨 뒷순위로 이동)" : "";
+            string firstTimeNotice = isFirstTimer ? "🔰 **[신규 멤버 첫 교체혈전 찬스 사용!]** 순위 제한 없이 자유 지목되었습니다! (패배 시 맨 뒷순위 이동)" : "";
 
             // 규칙 안내 임베드 생성 (규칙 2, 3, 4, 6 포함)
             var embed = new EmbedBuilder()
@@ -344,7 +350,7 @@ class Program
                 return;
             }
 
-            // 첫 교체혈전 기록 업데이트
+            // 대결 완료 시 첫 찬스 사용 완료 처리
             _firstTimerUsed.Add(winner);
             _firstTimerUsed.Add(loser);
 
@@ -354,7 +360,7 @@ class Program
             if (isFirstTimerLoss)
             {
                 _ladderRanks.Remove(loser);
-                _ladderRanks.Add(loser); // 맨 뒤로 추가
+                _ladderRanks.Add(loser); // 맨 뒤로 이동
                 resultMsg = $"💥 **{loser}**님이 첫 교체혈전에서 패배하여 **맨 뒷순위({_ladderRanks.Count}위)**로 이동되었습니다!";
             }
             // 일반 승리: 아래 있던 도전자가 승리하여 위 순위를 차지하는 경우
@@ -379,7 +385,7 @@ class Program
         }
     }
 
-    // [/교체멤버추가] 인원 추가 (맨 뒤로)
+    // [/교체멤버추가] 인원 추가 (맨 뒤로 추가되며 첫 교체혈전 찬스 부여)
     private async Task HandleAddMember(SocketSlashCommand command)
     {
         string newName = command.Data.Options.FirstOrDefault(o => o.Name == "이름")?.Value.ToString().Trim() ?? "";
@@ -393,7 +399,10 @@ class Program
             }
 
             _ladderRanks.Add(newName);
-            command.FollowupAsync($"✅ **{newName}**님이 교체혈전 명단 맨 뒷순위({_ladderRanks.Count}위)에 추가되었습니다.");
+            // 💡 신규 추가된 인원은 찬스를 아직 안 쓴 상태로 설정!
+            _firstTimerUsed.Remove(newName);
+
+            command.FollowupAsync($"✅ **{newName}**님이 교체혈전 명단 맨 뒷순위({_ladderRanks.Count}위)에 추가되었습니다! 🔰 (신규 찬스 부여됨)");
         }
     }
 
