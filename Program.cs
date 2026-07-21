@@ -82,83 +82,80 @@ class Program
 
     private Task LogAsync(LogMessage log) { Console.WriteLine(log.ToString()); return Task.CompletedTask; }
 
-    // 1. 디스코드 슬래시 명령어 등록
-    private async Task ReadyAsync()
+ // 1. 디스코드 슬래시 명령어 일괄 등록 (수정본)
+private async Task ReadyAsync()
+{
+    try
     {
-        try
-        {
-            // 기존 글로벌 명령어 초기화 (청소)
-            await _client.BulkOverwriteGlobalApplicationCommandsAsync(Array.Empty<ApplicationCommandProperties>());
-            Console.WriteLine("🧹 기존 글로벌 명령어 목록을 깨끗하게 청소했습니다!");
+        var commandList = new List<ApplicationCommandProperties>();
 
-            // [기존 명령어]
-            var naejeonCmd = new SlashCommandBuilder()
-                .WithName("내전")
-                .WithDescription("내전 모집글을 생성합니다.")
-                .AddOption("날짜", ApplicationCommandOptionType.String, "내전 진행 날짜 (예: 월요일)", isRequired: true)
-                .AddOption("시간", ApplicationCommandOptionType.String, "내전 시간 (예: 저녁 7시)", isRequired: true)
-                .AddOption("몇시간뒤", ApplicationCommandOptionType.Integer, "몇 시간 뒤에 주최자에게 명단 DM을 보낼지 숫자로만 적으세요", isRequired: true)
-                .AddOption("내용", ApplicationCommandOptionType.String, "상세 내용을 적으세요 (예: 롤 내전 5vs5)", isRequired: true);
+        // [기존 내전 명령어]
+        commandList.Add(new SlashCommandBuilder()
+            .WithName("내전")
+            .WithDescription("내전 모집글을 생성합니다.")
+            .AddOption("날짜", ApplicationCommandOptionType.String, "내전 진행 날짜 (예: 월요일)", isRequired: true)
+            .AddOption("시간", ApplicationCommandOptionType.String, "내전 시간 (예: 저녁 7시)", isRequired: true)
+            .AddOption("몇시간뒤", ApplicationCommandOptionType.Integer, "몇 시간 뒤에 주최자에게 명단 DM을 보낼지 숫자로만 적으세요", isRequired: true)
+            .AddOption("내용", ApplicationCommandOptionType.String, "상세 내용을 적으세요 (예: 롤 내전 5vs5)", isRequired: true)
+            .Build());
 
-            var startCmd = new SlashCommandBuilder()
-                .WithName("내전시작")
-                .WithDescription("내전을 시작하고 공수 선택 버튼을 띄웁니다. (대기방 유저 이동용)");
+        commandList.Add(new SlashCommandBuilder()
+            .WithName("내전시작")
+            .WithDescription("내전을 시작하고 공수 선택 버튼을 띄웁니다. (대기방 유저 이동용)")
+            .Build());
 
-            var endCmd = new SlashCommandBuilder()
-                .WithName("게임끝")
-                .WithDescription("진행 중인 판을 끝내고 공수방 인원을 대기방으로 한꺼번에 불러옵니다.");
+        commandList.Add(new SlashCommandBuilder()
+            .WithName("게임끝")
+            .WithDescription("진행 중인 판을 끝내고 공수방 인원을 대기방으로 한꺼번에 불러옵니다.")
+            .Build());
 
-            var finishCmd = new SlashCommandBuilder()
-                .WithName("게임쫑")
-                .WithDescription("오늘 내전 일정을 완전히 종료합니다.");
+        commandList.Add(new SlashCommandBuilder()
+            .WithName("게임쫑")
+            .WithDescription("오늘 내전 일정을 완전히 종료합니다.")
+            .Build());
 
-            // [⚔️ 교체혈전 신규 명령어]
-            var rankListCmd = new SlashCommandBuilder()
-                .WithName("교체순위")
-                .WithDescription("현재 교체혈전 순위 리스트를 확인합니다.");
+        // [⚔️ 교체혈전 명령어]
+        commandList.Add(new SlashCommandBuilder()
+            .WithName("교체순위")
+            .WithDescription("현재 교체혈전 순위 리스트를 확인합니다.")
+            .Build());
 
-            var challengeCmd = new SlashCommandBuilder()
-                .WithName("교체신청")
-                .WithDescription("상대방에게 교체혈전을 신청합니다.")
-                .AddOption("본인이름", ApplicationCommandOptionType.String, "본인의 이름을 입력하세요", isRequired: true)
-                .AddOption("상대이름", ApplicationCommandOptionType.String, "지목할 상대방의 이름을 입력하세요", isRequired: true);
+        commandList.Add(new SlashCommandBuilder()
+            .WithName("교체신청")
+            .WithDescription("상대방에게 교체혈전을 신청합니다.")
+            .AddOption("본인이름", ApplicationCommandOptionType.String, "본인의 이름을 입력하세요", isRequired: true)
+            .AddOption("상대이름", ApplicationCommandOptionType.String, "지목할 상대방의 이름을 입력하세요", isRequired: true)
+            .Build());
 
-            var resultCmd = new SlashCommandBuilder()
-                .WithName("교체결과")
-                .WithDescription("교체혈전 결과를 입력하여 순위를 갱신합니다. (운영진 전용)")
-                .AddOption("승리자", ApplicationCommandOptionType.String, "승리한 사람 이름", isRequired: true)
-                .AddOption("패배자", ApplicationCommandOptionType.String, "패배한 사람 이름", isRequired: true)
-                .AddOption("첫교체패배여부", ApplicationCommandOptionType.Boolean, "신규 유저가 '첫 교체혈전'에서 패배했나요?", isRequired: false);
+        commandList.Add(new SlashCommandBuilder()
+            .WithName("교체결과")
+            .WithDescription("교체혈전 결과를 입력하여 순위를 갱신합니다. (운영진 전용)")
+            .AddOption("승리자", ApplicationCommandOptionType.String, "승리한 사람 이름", isRequired: true)
+            .AddOption("패배자", ApplicationCommandOptionType.String, "패배한 사람 이름", isRequired: true)
+            .AddOption("첫교체패배여부", ApplicationCommandOptionType.Boolean, "신규 유저가 '첫 교체혈전'에서 패배했나요?", isRequired: false)
+            .Build());
 
-            var addMemberCmd = new SlashCommandBuilder()
-                .WithName("교체멤버추가")
-                .WithDescription("교체혈전 리스트에 새로운 멤버를 추가합니다. (운영진 전용)")
-                .AddOption("이름", ApplicationCommandOptionType.String, "추가할 멤버 이름", isRequired: true);
+        commandList.Add(new SlashCommandBuilder()
+            .WithName("교체멤버추가")
+            .WithDescription("교체혈전 리스트에 새로운 멤버를 추가합니다. (운영진 전용)")
+            .AddOption("이름", ApplicationCommandOptionType.String, "추가할 멤버 이름", isRequired: true)
+            .Build());
 
-            var removeMemberCmd = new SlashCommandBuilder()
-                .WithName("교체멤버삭제")
-                .WithDescription("교체혈전 리스트에서 멤버를 삭제합니다. (운영진 전용)")
-                .AddOption("이름", ApplicationCommandOptionType.String, "삭제할 멤버 이름", isRequired: true);
+        commandList.Add(new SlashCommandBuilder()
+            .WithName("교체멤버삭제")
+            .WithDescription("교체혈전 리스트에서 멤버를 삭제합니다. (운영진 전용)")
+            .AddOption("이름", ApplicationCommandOptionType.String, "삭제할 멤버 이름", isRequired: true)
+            .Build());
 
-            // 명령어 일괄 등록
-            await _client.CreateGlobalApplicationCommandAsync(naejeonCmd.Build());
-            await _client.CreateGlobalApplicationCommandAsync(startCmd.Build());
-            await _client.CreateGlobalApplicationCommandAsync(endCmd.Build());
-            await _client.CreateGlobalApplicationCommandAsync(finishCmd.Build());
-
-            await _client.CreateGlobalApplicationCommandAsync(rankListCmd.Build());
-            await _client.CreateGlobalApplicationCommandAsync(challengeCmd.Build());
-            await _client.CreateGlobalApplicationCommandAsync(resultCmd.Build());
-            await _client.CreateGlobalApplicationCommandAsync(addMemberCmd.Build());
-            await _client.CreateGlobalApplicationCommandAsync(removeMemberCmd.Build());
-
-            Console.WriteLine("🤖 모든 내전 및 교체혈전 명령어 등록 완료!");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"명령어 등록 중 오류 발생: {ex.Message}");
-        }
+        // 💡 모든 명령어를 단 1회의 API 요청으로 일괄 덮어쓰기 등록!
+        await _client.BulkOverwriteGlobalApplicationCommandsAsync(commandList.ToArray());
+        Console.WriteLine("🤖 총 9개의 모든 슬래시 명령어 등록 완료!");
     }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"명령어 등록 중 오류 발생: {ex.Message}");
+    }
+}
 
     // 2. 명령어 분기 처리
     private async Task SlashCommandHandler(SocketSlashCommand command)
