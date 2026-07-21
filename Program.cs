@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Discord;
@@ -8,10 +9,25 @@ using Discord.WebSocket;
 class Program
 {
     private DiscordSocketClient _client;
-    
+
     // 내전 모집 및 진행 관리를 위한 메모리 데이터 저장소
     private readonly Dictionary<ulong, List<ulong>> _naejeonParticipants = new Dictionary<ulong, List<ulong>>();
     private readonly object _participantsLock = new object();
+
+    // ⚔️ 교체혈전 데이터 저장소 및 잠금 객체
+    private readonly object _ladderLock = new object();
+    private readonly List<string> _ladderRanks = new List<string>
+    {
+        "준", "재동", "김치", "대웅", "고래", "지원", "승현", "리스", 
+        "하루비", "혁", "윤", "제이크", "예은", "네보", "투스", 
+        "초원", "우망", "레카", "영식", "우노", "쿠쿠", "효준"
+    };
+
+    // 첫 교체혈전을 이미 사용한 유저 목록
+    private readonly HashSet<string> _firstTimerUsed = new HashSet<string>();
+
+    // 주차별(주간) 대결 기록: Key = "년도-주차_도전자_피도전자"
+    private readonly HashSet<string> _weeklyMatchHistory = new HashSet<string>();
 
     static void Main(string[] args) => new Program().MainAsync().GetAwaiter().GetResult();
 
@@ -19,15 +35,14 @@ class Program
     {
         var config = new DiscordSocketConfig
         {
-            // 💡 유저를 다른 음성 채널로 이동시키려면 GuildVoiceStates 인텐트가 반드시 필요합니다!
             GatewayIntents = GatewayIntents.AllUnprivileged | GatewayIntents.GuildVoiceStates
         };
         _client = new DiscordSocketClient(config);
 
         _client.Log += LogAsync;
-        _client.Ready += ReadyAsync; 
-        _client.SlashCommandExecuted += SlashCommandHandler; 
-        _client.ButtonExecuted += ButtonExecutedAsync; 
+        _client.Ready += ReadyAsync;
+        _client.SlashCommandExecuted += SlashCommandHandler;
+        _client.ButtonExecuted += ButtonExecutedAsync;
 
         string token = Environment.GetEnvironmentVariable("DISCORD_TOKEN") ?? "YOUR_BOT_TOKEN_HERE";
         await _client.LoginAsync(TokenType.Bot, token);
@@ -62,16 +77,16 @@ class Program
 
     private Task LogAsync(LogMessage log) { Console.WriteLine(log.ToString()); return Task.CompletedTask; }
 
-// 1. 디스코드 서버에 대기업 봇처럼 입력창이 뜨는 슬래시 명령어 등록 (기존 명령어 초기화 포함)
+    // 1. 디스코드 슬래시 명령어 등록
     private async Task ReadyAsync()
     {
         try
         {
-            // 💡 [타입 오류 수정 완료] 빈 배열(Array.Empty) 형태로 전달하여 기존 글로벌 명령어들을 깨끗이 지웁니다.
+            // 기존 글로벌 명령어 초기화 (청소)
             await _client.BulkOverwriteGlobalApplicationCommandsAsync(Array.Empty<ApplicationCommandProperties>());
             Console.WriteLine("🧹 기존 글로벌 명령어 목록을 깨끗하게 청소했습니다!");
 
-            // 새로 사용할 명령어 목록 구성
+            // [기존 명령어]
             var naejeonCmd = new SlashCommandBuilder()
                 .WithName("내전")
                 .WithDescription("내전 모집글을 생성합니다.")
@@ -92,13 +107,47 @@ class Program
                 .WithName("게임쫑")
                 .WithDescription("오늘 내전 일정을 완전히 종료합니다.");
 
-            // 새로운 명령어들만 디스코드에 깔끔하게 새로 등록
+            // [⚔️ 교체혈전 신규 명령어]
+            var rankListCmd = new SlashCommandBuilder()
+                .WithName("교체순위")
+                .WithDescription("현재 교체혈전 순위 리스트를 확인합니다.");
+
+            var challengeCmd = new SlashCommandBuilder()
+                .WithName("교체신청")
+                .WithDescription("상대방에게 교체혈전을 신청합니다.")
+                .AddOption("본인이름", ApplicationCommandOptionType.String, "본인의 이름을 입력하세요", isRequired: true)
+                .AddOption("상대이름", ApplicationCommandOptionType.String, "지목할 상대방의 이름을 입력하세요", isRequired: true);
+
+            var resultCmd = new SlashCommandBuilder()
+                .WithName("교체결과")
+                .WithDescription("교체혈전 결과를 입력하여 순위를 갱신합니다. (운영진 전용)")
+                .AddOption("승리자", ApplicationCommandOptionType.String, "승리한 사람 이름", isRequired: true)
+                .AddOption("패배자", ApplicationCommandOptionType.String, "패배한 사람 이름", isRequired: true)
+                .AddOption("첫교체패배여부", ApplicationCommandOptionType.Boolean, "도전자가 '첫 교체혈전'에서 패배했나요?", isRequired: false);
+
+            var addMemberCmd = new SlashCommandBuilder()
+                .WithName("교체멤버추가")
+                .WithDescription("교체혈전 리스트에 새로운 멤버를 추가합니다. (운영진 전용)")
+                .AddOption("이름", ApplicationCommandOptionType.String, "추가할 멤버 이름", isRequired: true);
+
+            var removeMemberCmd = new SlashCommandBuilder()
+                .WithName("교체멤버삭제")
+                .WithDescription("교체혈전 리스트에서 멤버를 삭제합니다. (운영진 전용)")
+                .AddOption("이름", ApplicationCommandOptionType.String, "삭제할 멤버 이름", isRequired: true);
+
+            // 명령어 일괄 등록
             await _client.CreateGlobalApplicationCommandAsync(naejeonCmd.Build());
             await _client.CreateGlobalApplicationCommandAsync(startCmd.Build());
             await _client.CreateGlobalApplicationCommandAsync(endCmd.Build());
             await _client.CreateGlobalApplicationCommandAsync(finishCmd.Build());
-            
-            Console.WriteLine("🤖 새로운 이동 관련 슬래시 명령어 등록 완료!");
+
+            await _client.CreateGlobalApplicationCommandAsync(rankListCmd.Build());
+            await _client.CreateGlobalApplicationCommandAsync(challengeCmd.Build());
+            await _client.CreateGlobalApplicationCommandAsync(resultCmd.Build());
+            await _client.CreateGlobalApplicationCommandAsync(addMemberCmd.Build());
+            await _client.CreateGlobalApplicationCommandAsync(removeMemberCmd.Build());
+
+            Console.WriteLine("🤖 모든 내전 및 교체혈전 명령어 등록 완료!");
         }
         catch (Exception ex)
         {
@@ -114,34 +163,276 @@ class Program
         var user = command.User as SocketGuildUser;
         if (user == null) return;
 
-        // 권한 체크: '내전운영진' 역할 보유 여부 확인
         string adminRoleName = "내전운영진";
-        bool hasRole = user.Roles.Any(r => r.Name == adminRoleName);
-
-        if (!hasRole)
-        {
-            await command.FollowupAsync("❌ 권한이 없습니다. '내전운영진' 역할만 명령어를 사용할 수 있습니다.", ephemeral: true);
-            return;
-        }
+        bool hasAdminRole = user.Roles.Any(r => r.Name == adminRoleName);
 
         switch (command.CommandName)
         {
             case "내전":
+                if (!CheckAdmin(hasAdminRole, command)) return;
                 await HandleNaejeon(command);
                 break;
             case "내전시작":
+                if (!CheckAdmin(hasAdminRole, command)) return;
                 await HandleNaejeonStart(command);
                 break;
             case "게임끝":
+                if (!CheckAdmin(hasAdminRole, command)) return;
                 await HandleGameEnd(command);
                 break;
             case "게임쫑":
+                if (!CheckAdmin(hasAdminRole, command)) return;
                 await HandleNaejeonFinish(command);
+                break;
+
+            // 교체혈전 관련 핸들러
+            case "교체순위":
+                await HandleRankList(command);
+                break;
+            case "교체신청":
+                await HandleChallenge(command);
+                break;
+            case "교체결과":
+                if (!CheckAdmin(hasAdminRole, command)) return;
+                await HandleChallengeResult(command);
+                break;
+            case "교체멤버추가":
+                if (!CheckAdmin(hasAdminRole, command)) return;
+                await HandleAddMember(command);
+                break;
+            case "교체멤버삭제":
+                if (!CheckAdmin(hasAdminRole, command)) return;
+                await HandleRemoveMember(command);
                 break;
         }
     }
 
-    // [/내전] 모집글 생성 처리
+    private bool CheckAdmin(bool hasAdminRole, SocketSlashCommand command)
+    {
+        if (!hasAdminRole)
+        {
+            command.FollowupAsync("❌ 권한이 없습니다. '내전운영진' 역할만 사용할 수 있습니다.", ephemeral: true);
+            return false;
+        }
+        return true;
+    }
+
+    // ==========================================
+    // ⚔️ 교체혈전 로직 구현
+    // ==========================================
+
+    // [/교체순위] 현재 순위 출력
+    private async Task HandleRankList(SocketSlashCommand command)
+    {
+        lock (_ladderLock)
+        {
+            string rankText = "";
+            for (int i = 0; i < _ladderRanks.Count; i++)
+            {
+                string firstTimerBadge = _firstTimerUsed.Contains(_ladderRanks[i]) ? "" : " 🔰(첫혈전 미사용)";
+                rankText += $"**{i + 1}위**: {_ladderRanks[i]}{firstTimerBadge}\n";
+            }
+
+            var embed = new EmbedBuilder()
+                .WithTitle("🏆 교체혈전 현재 순위표")
+                .WithDescription(rankText)
+                .WithColor(Color.Gold)
+                .WithFooter(footer => footer.Text = "월요일마다 일주일 1회 신청제한이 초기화됩니다.")
+                .Build();
+
+            command.FollowupAsync(embed: embed);
+        }
+    }
+
+    // [/교체신청] 대결 신청 및 검증
+    private async Task HandleChallenge(SocketSlashCommand command)
+    {
+        var options = command.Data.Options;
+        string challenger = options.FirstOrDefault(o => o.Name == "본인이름")?.Value.ToString().Trim() ?? "";
+        string defender = options.FirstOrDefault(o => o.Name == "상대이름")?.Value.ToString().Trim() ?? "";
+
+        lock (_ladderLock)
+        {
+            int challengerIdx = _ladderRanks.IndexOf(challenger);
+            int defenderIdx = _ladderRanks.IndexOf(defender);
+
+            // 7. 리스트 내 인원 검증
+            if (challengerIdx == -1)
+            {
+                command.FollowupAsync($"❌ '{challenger}'님은 교체혈전 명단에 없습니다.", ephemeral: true);
+                return;
+            }
+            if (defenderIdx == -1)
+            {
+                command.FollowupAsync($"❌ '{defender}'님은 교체혈전 명단에 없습니다.", ephemeral: true);
+                return;
+            }
+            if (challengerIdx == defenderIdx)
+            {
+                command.FollowupAsync("❌ 자기 자신에게는 신청할 수 없습니다.", ephemeral: true);
+                return;
+            }
+
+            // 5. 일주일 1회 제한 검증 (월요일 리젠)
+            string currentWeekKey = GetCurrentWeekKey();
+            string matchKey = $"{currentWeekKey}_{challenger}_{defender}";
+
+            if (_weeklyMatchHistory.Contains(matchKey))
+            {
+                command.FollowupAsync($"❌ 이번 주에 이미 **{defender}**님에게 교체혈전을 신청하셨습니다! (월요일마다 리셋)", ephemeral: true);
+                return;
+            }
+
+            // 8. 첫 교체혈전 여부 확인
+            bool isFirstTimer = !_firstTimerUsed.Contains(challenger);
+
+            if (!isFirstTimer)
+            {
+                // 1. 위로 5단계 이하 제한 검증 (첫 혈전이 아닌 경우)
+                int diff = challengerIdx - defenderIdx;
+                if (diff <= 0)
+                {
+                    command.FollowupAsync("❌ 자신보다 상위 순위인 사람에게만 신청할 수 있습니다.", ephemeral: true);
+                    return;
+                }
+                if (diff > 5)
+                {
+                    command.FollowupAsync($"❌ 본인보다 위로 최대 5단계까지만 신청 가능합니다. (현재 차이: {diff}단계)", ephemeral: true);
+                    return;
+                }
+            }
+
+            // 대결 신청 기록 추가
+            _weeklyMatchHistory.Add(matchKey);
+
+            string firstTimeNotice = isFirstTimer ? "🔰 **[첫 교체혈전 찬스 사용!]** 순위 제한 없이 신청되었습니다! (패배 시 맨 뒷순위로 이동)" : "";
+
+            // 규칙 안내 임베드 생성 (규칙 2, 3, 4, 6 포함)
+            var embed = new EmbedBuilder()
+                .WithTitle("⚔️ 교체혈전 신청 완료!")
+                .WithDescription($"**{challenger}** (순위: {challengerIdx + 1}위) 🆚 **{defender}** (순위: {defenderIdx + 1}위)\n\n" +
+                                 $"{firstTimeNotice}\n\n" +
+                                 $"--- **[📜 경기 규칙 필독]** ---\n" +
+                                 $"1. 👑 **무조건 방장 앞에서 진행해야 합니다.**\n" +
+                                 $"2. 🎯 **게임 모드:** 무조건 **난투 A**\n" +
+                                 $"3. 🔫 **사용 가능 총기:** 벤달, 팬텀, 가디언, 셰리프, 고스트, 클래식\n" +
+                                 $"4. ⚠️ **승낙 거부 시:** 정당한 사유 없이 거부할 경우 패배 처리됩니다.\n" +
+                                 $"5. 📅 **동일 대상 재신청:** 다음 주 월요일 이후 가능합니다.")
+                .WithColor(Color.Red)
+                .Build();
+
+            command.FollowupAsync(embed: embed);
+        }
+    }
+
+    // [/교체결과] 경기 결과 반영 및 순위 이동
+    private async Task HandleChallengeResult(SocketSlashCommand command)
+    {
+        var options = command.Data.Options;
+        string winner = options.FirstOrDefault(o => o.Name == "승리자")?.Value.ToString().Trim() ?? "";
+        string loser = options.FirstOrDefault(o => o.Name == "패배자")?.Value.ToString().Trim() ?? "";
+        bool isFirstTimerLoss = (bool)(options.FirstOrDefault(o => o.Name == "첫교체패배여부")?.Value ?? false);
+
+        lock (_ladderLock)
+        {
+            int winnerIdx = _ladderRanks.IndexOf(winner);
+            int loserIdx = _ladderRanks.IndexOf(loser);
+
+            if (winnerIdx == -1 || loserIdx == -1)
+            {
+                command.FollowupAsync("❌ 입력한 이름이 교체혈전 명단에 없습니다.", ephemeral: true);
+                return;
+            }
+
+            // 첫 교체혈전 기록 업데이트
+            _firstTimerUsed.Add(winner);
+            _firstTimerUsed.Add(loser);
+
+            string resultMsg = "";
+
+            // 첫 교체혈전 패배 시 맨 뒷순위로 이동 규칙 (규칙 8)
+            if (isFirstTimerLoss)
+            {
+                _ladderRanks.Remove(loser);
+                _ladderRanks.Add(loser); // 맨 뒤로 추가
+                resultMsg = $"💥 **{loser}**님이 첫 교체혈전에서 패배하여 **맨 뒷순위({_ladderRanks.Count}위)**로 이동되었습니다!";
+            }
+            // 일반 승리: 아래 있던 도전자가 승리하여 위 순위를 차지하는 경우
+            else if (winnerIdx > loserIdx)
+            {
+                _ladderRanks.Remove(winner);
+                _ladderRanks.Insert(loserIdx, winner); // 승리자가 패배자 위치를 밀고 들어감
+                resultMsg = $"🎉 **{winner}**님이 **{loser}**님을 꺾고 **{loserIdx + 1}위**로 상승했습니다!";
+            }
+            else
+            {
+                resultMsg = $"🛡️ **{winner}**님이 방어에 성공하여 기존 순위({winnerIdx + 1}위)를 유지했습니다.";
+            }
+
+            var embed = new EmbedBuilder()
+                .WithTitle("🏆 교체혈전 결과 발표")
+                .WithDescription(resultMsg)
+                .WithColor(Color.Green)
+                .Build();
+
+            command.FollowupAsync(embed: embed);
+        }
+    }
+
+    // [/교체멤버추가] 인원 추가 (맨 뒤로)
+    private async Task HandleAddMember(SocketSlashCommand command)
+    {
+        string newName = command.Data.Options.FirstOrDefault(o => o.Name == "이름")?.Value.ToString().Trim() ?? "";
+
+        lock (_ladderLock)
+        {
+            if (_ladderRanks.Contains(newName))
+            {
+                command.FollowupAsync("❌ 이미 명단에 존재하는 이름입니다.", ephemeral: true);
+                return;
+            }
+
+            _ladderRanks.Add(newName);
+            command.FollowupAsync($"✅ **{newName}**님이 교체혈전 명단 맨 뒷순위({_ladderRanks.Count}위)에 추가되었습니다.");
+        }
+    }
+
+    // [/교체멤버삭제] 인원 삭제
+    private async Task HandleRemoveMember(SocketSlashCommand command)
+    {
+        string removeName = command.Data.Options.FirstOrDefault(o => o.Name == "이름")?.Value.ToString().Trim() ?? "";
+
+        lock (_ladderLock)
+        {
+            if (!_ladderRanks.Contains(removeName))
+            {
+                command.FollowupAsync("❌ 명단에 존재하지 않는 이름입니다.", ephemeral: true);
+                return;
+            }
+
+            _ladderRanks.Remove(removeName);
+            _firstTimerUsed.Remove(removeName);
+            command.FollowupAsync($"🗑️ **{removeName}**님이 교체혈전 명단에서 삭제되었습니다.");
+        }
+    }
+
+    // 현재 주차(Year-Week) 구하는 헬퍼 메서드 (월요일 리셋용)
+    private string GetCurrentWeekKey()
+    {
+        DateTime now = DateTime.UtcNow.AddHours(9); // KST 기준
+        DayOfWeek day = CultureInfo.InvariantCulture.Calendar.GetDayOfWeek(now);
+        if (day >= DayOfWeek.Monday && day <= DayOfWeek.Wednesday)
+        {
+            now = now.AddDays(3);
+        }
+        int weekNum = CultureInfo.InvariantCulture.Calendar.GetWeekOfYear(now, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
+        return $"{now.Year}-W{weekNum}";
+    }
+
+    // ==========================================
+    // [기존] 내전 및 공수방 이동 기능
+    // ==========================================
+
     private async Task HandleNaejeon(SocketSlashCommand command)
     {
         var options = command.Data.Options;
@@ -181,13 +472,12 @@ class Program
 
         _ = Task.Run(async () =>
         {
-            int delayMilliseconds = (int)data_timer * 60 * 60 * 1000; // 분 단위를 시간 단위로 교정 (timer * 60 * 60 * 1000)
+            int delayMilliseconds = (int)data_timer * 60 * 60 * 1000;
             await Task.Delay(delayMilliseconds);
             await SendNaejeonManageDM(command.User, originalResponse.Id, command.Channel.Id);
         });
     }
 
-    // [/내전시작] 공수 선택 버튼 구현
     private async Task HandleNaejeonStart(SocketSlashCommand command)
     {
         var embed = new EmbedBuilder()
@@ -204,13 +494,11 @@ class Program
         await command.FollowupAsync(embed: embed, components: component);
     }
 
-    // [/게임끝] 공격/수비 음성 채널에 있는 인원들을 다시 대기방으로 강제 이동
     private async Task HandleGameEnd(SocketSlashCommand command)
     {
         var guild = (command.Channel as SocketGuildChannel)?.Guild;
         if (guild == null) return;
 
-        // 서버에서 이름 기반으로 채널들 찾기
         var lobbyChannel = guild.VoiceChannels.FirstOrDefault(c => c.Name.Contains("대기방"));
         var attackChannel = guild.VoiceChannels.FirstOrDefault(c => c.Name.Contains("공격"));
         var defenseChannel = guild.VoiceChannels.FirstOrDefault(c => c.Name.Contains("수비"));
@@ -223,7 +511,6 @@ class Program
 
         int movedCount = 0;
 
-        // 공격방 인원 대기방으로 이동
         if (attackChannel != null)
         {
             foreach (var user in attackChannel.ConnectedUsers)
@@ -233,7 +520,6 @@ class Program
             }
         }
 
-        // 수비방 인원 대기방으로 이동
         if (defenseChannel != null)
         {
             foreach (var user in defenseChannel.ConnectedUsers)
@@ -246,7 +532,6 @@ class Program
         await command.FollowupAsync($"✅ 게임이 종료되어 공/수 채널의 유저 {movedCount}명을 **[{lobbyChannel.Name}]**으로 일괄 이동시켰습니다!");
     }
 
-    // [/게임쫑] 일정 완전 종료
     private async Task HandleNaejeonFinish(SocketSlashCommand command)
     {
         lock (_participantsLock)
@@ -256,13 +541,11 @@ class Program
         await command.FollowupAsync("🏁 오늘 진행된 모든 내전 데이터가 초기화되었습니다. 모두 수고하셨습니다!");
     }
 
-    // 3. 버튼 클릭 처리 (참여 신청 및 공격/수비 방 자동 이동)
     private async Task ButtonExecutedAsync(SocketMessageComponent component)
     {
         var user = component.User as SocketGuildUser;
         if (user == null) return;
 
-        // [참여하기] 버튼 처리
         if (component.Data.CustomId == "join_naejeon")
         {
             var msgId = component.Message.Id;
@@ -307,10 +590,8 @@ class Program
                 Console.WriteLine($"{user.Username}님이 DM을 차단해 대기번호를 발송하지 못했습니다.");
             }
         }
-        // [공격팀 이동] 또는 [수비팀 이동] 버튼 처리
         else if (component.Data.CustomId == "move_attack" || component.Data.CustomId == "move_defense")
         {
-            // 유저가 음성 채널에 들어가 있는지 체크
             if (user.VoiceChannel == null)
             {
                 await component.RespondAsync("❌ 음성 채널(대기방)에 먼저 접속한 뒤 버튼을 눌러주세요!", ephemeral: true);
@@ -328,7 +609,6 @@ class Program
 
             try
             {
-                // 유저를 공격/수비 채널로 자동 드래그(이동)
                 await user.ModifyAsync(x => x.Channel = targetChannel);
                 await component.RespondAsync($"🏃 **[{targetChannel.Name}]** 채널로 이동되었습니다!", ephemeral: true);
             }
@@ -338,7 +618,6 @@ class Program
                 Console.WriteLine($"이동 오류: {ex.Message}");
             }
         }
-        // 원격 호출 버튼 처리
         else if (component.Data.CustomId.StartsWith("mention_"))
         {
             var parts = component.Data.CustomId.Split('_');
@@ -354,7 +633,6 @@ class Program
         }
     }
 
-    // 주최자 원격 관리 DM 전송
     private async Task SendNaejeonManageDM(IUser hostUser, ulong messageId, ulong channelId)
     {
         List<ulong> participants = null;
