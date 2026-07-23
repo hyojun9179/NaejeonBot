@@ -114,10 +114,10 @@ class Program
                 .WithDescription("오늘 내전 일정을 완전히 종료합니다.")
                 .Build());
 
-            // [💤 신규 잠수 명령어]
+            // [💤 봇 잠수방 상주 명령어]
             commandList.Add(new SlashCommandBuilder()
                 .WithName("잠수")
-                .WithDescription("잠수방으로 이동하고 마이크와 헤드셋을 차단합니다.")
+                .WithDescription("봇이 잠수방에 들어와 마이크와 헤드셋을 끄고 자리를 지킵니다.")
                 .Build());
 
             // [⚔️ 교체혈전 명령어]
@@ -153,7 +153,7 @@ class Program
                 .AddOption("이름", ApplicationCommandOptionType.String, "삭제할 멤버 이름", isRequired: true)
                 .Build());
 
-            // 💡 모든 명령어를 단 1회의 API 요청으로 일괄 덮어쓰기 등록!
+            // 모든 슬래시 명령어 일괄 등록
             await _client.BulkOverwriteGlobalApplicationCommandsAsync(commandList.ToArray());
             Console.WriteLine("🤖 총 10개의 모든 슬래시 명령어 등록 완료!");
         }
@@ -196,7 +196,7 @@ class Program
                 await HandleAfk(command);
                 break;
 
-            // 교체혈전 관련 핸들러
+            // 교체혈전 핸들러
             case "교체순위":
                 await HandleRankList(command);
                 break;
@@ -229,53 +229,41 @@ class Program
     }
 
     // ==========================================
-    // 💤 잠수 명령어 로직 구현
+    // 💤 봇 잠수방 상주 기능
     // ==========================================
     private async Task HandleAfk(SocketSlashCommand command)
     {
         var user = command.User as SocketGuildUser;
         if (user == null) return;
 
-        // 음성 채널 접속 여부 확인
-        if (user.VoiceChannel == null)
-        {
-            await command.FollowupAsync("❌ 음성 채널에 먼저 접속한 뒤 명령어를 사용해 주세요!", ephemeral: true);
-            return;
-        }
-
-        // 이름에 '잠수'가 포함된 음성 채널 탐색
-        var afkChannel = user.Guild.VoiceChannels.FirstOrDefault(c => c.Name.Contains("잠수"));
+        // 서버에서 '잠수'라는 이름이 포함된 음성 채널 탐색 (없으면 명령어를 실행한 유저가 접속 중인 음성 채널)
+        var afkChannel = user.Guild.VoiceChannels.FirstOrDefault(c => c.Name.Contains("잠수")) ?? user.VoiceChannel;
 
         if (afkChannel == null)
         {
-            await command.FollowupAsync("❌ 서버 내 이름에 '잠수'가 포함된 음성 채널을 찾을 수 없습니다.", ephemeral: true);
+            await command.FollowupAsync("❌ 서버 내에서 '잠수' 음성 채널을 찾을 수 없거나, 음성 채널에 들어가 있지 않으십니다.", ephemeral: true);
             return;
         }
 
         try
         {
-            // 잠수방으로 이동시키며 마이크(Mute)와 헤드셋(Deaf) 모두 차단
-            await user.ModifyAsync(x =>
-            {
-                x.Channel = afkChannel;
-                x.Mute = true;
-                x.Deaf = true; // 💡 Deafen -> Deaf로 수정 완료!
-            });
+            // 🤖 봇 자신이 해당 음성 채널에 직접 접속!
+            // selfMute: true (마이크 끔), selfDeaf: true (헤드셋 끔)
+            await afkChannel.ConnectAsync(selfDeaf: true, selfMute: true);
 
-            await command.FollowupAsync($"💤 **[{afkChannel.Name}]** 채널로 이동되었으며, 마이크 및 헤드셋이 차단되었습니다.");
+            await command.FollowupAsync($"💤 **봇이 [{afkChannel.Name}] 채널에 접속했습니다!** 마이크와 헤드셋을 끄고 자리를 유지합니다.");
         }
         catch (Exception ex)
         {
-            await command.FollowupAsync("❌ 잠수방 이동 중 오류가 발생했습니다. 봇에게 '멤버 이동', '음성 음소거', '음성 헤드셋 차단' 권한이 있는지 확인해 주세요.", ephemeral: true);
-            Console.WriteLine($"잠수 명령어 오류: {ex.Message}");
+            await command.FollowupAsync("❌ 봇이 음성 채널에 접속하는 도중 오류가 발생했습니다.", ephemeral: true);
+            Console.WriteLine($"잠수 접속 오류: {ex.Message}");
         }
     }
 
     // ==========================================
-    // ⚔️ 교체혈전 로직 구현
+    // ⚔️ 교체혈전 로직
     // ==========================================
 
-    // [/교체순위] 현재 순위 출력
     private async Task HandleRankList(SocketSlashCommand command)
     {
         lock (_ladderLock)
@@ -283,7 +271,6 @@ class Program
             string rankText = "";
             for (int i = 0; i < _ladderRanks.Count; i++)
             {
-                // 찬스를 아직 안 쓴 신규 멤버만 뱃지 표시
                 string firstTimerBadge = !_firstTimerUsed.Contains(_ladderRanks[i]) ? " 🔰(신규 첫혈전 찬스)" : "";
                 rankText += $"**{i + 1}위**: {_ladderRanks[i]}{firstTimerBadge}\n";
             }
@@ -299,7 +286,6 @@ class Program
         }
     }
 
-    // [/교체신청] 대결 신청 및 검증
     private async Task HandleChallenge(SocketSlashCommand command)
     {
         var options = command.Data.Options;
@@ -311,7 +297,6 @@ class Program
             int challengerIdx = _ladderRanks.IndexOf(challenger);
             int defenderIdx = _ladderRanks.IndexOf(defender);
 
-            // 7. 리스트 내 인원 검증
             if (challengerIdx == -1)
             {
                 command.FollowupAsync($"❌ '{challenger}'님은 교체혈전 명단에 없습니다.", ephemeral: true);
@@ -328,7 +313,6 @@ class Program
                 return;
             }
 
-            // 5. 일주일 1회 제한 검증 (월요일 리젠)
             string currentWeekKey = GetCurrentWeekKey();
             string matchKey = $"{currentWeekKey}_{challenger}_{defender}";
 
@@ -338,12 +322,10 @@ class Program
                 return;
             }
 
-            // 8. 신규 참가자 찬스 사용 여부 확인
             bool isFirstTimer = !_firstTimerUsed.Contains(challenger);
 
             if (!isFirstTimer)
             {
-                // 1. 위로 5단계 이하 제한 검증 (기존 유저 및 찬스 사용 완료 유저)
                 int diff = challengerIdx - defenderIdx;
                 if (diff <= 0)
                 {
@@ -357,12 +339,10 @@ class Program
                 }
             }
 
-            // 대결 신청 기록 추가
             _weeklyMatchHistory.Add(matchKey);
 
             string firstTimeNotice = isFirstTimer ? "🔰 **[신규 멤버 첫 교체혈전 찬스 사용!]** 순위 제한 없이 자유 지목되었습니다! (패배 시 맨 뒷순위 이동)" : "";
 
-            // 규칙 안내 임베드 생성 (규칙 2, 3, 4, 6 포함)
             var embed = new EmbedBuilder()
                 .WithTitle("⚔️ 교체혈전 신청 완료!")
                 .WithDescription($"**{challenger}** (순위: {challengerIdx + 1}위) 🆚 **{defender}** (순위: {defenderIdx + 1}위)\n\n" +
@@ -380,7 +360,6 @@ class Program
         }
     }
 
-    // [/교체결과] 경기 결과 반영 및 순위 이동
     private async Task HandleChallengeResult(SocketSlashCommand command)
     {
         var options = command.Data.Options;
@@ -399,24 +378,21 @@ class Program
                 return;
             }
 
-            // 대결 완료 시 첫 찬스 사용 완료 처리
             _firstTimerUsed.Add(winner);
             _firstTimerUsed.Add(loser);
 
             string resultMsg = "";
 
-            // 첫 교체혈전 패배 시 맨 뒷순위로 이동 규칙 (규칙 8)
             if (isFirstTimerLoss)
             {
                 _ladderRanks.Remove(loser);
-                _ladderRanks.Add(loser); // 맨 뒤로 이동
+                _ladderRanks.Add(loser);
                 resultMsg = $"💥 **{loser}**님이 첫 교체혈전에서 패배하여 **맨 뒷순위({_ladderRanks.Count}위)**로 이동되었습니다!";
             }
-            // 일반 승리: 아래 있던 도전자가 승리하여 위 순위를 차지하는 경우
             else if (winnerIdx > loserIdx)
             {
                 _ladderRanks.Remove(winner);
-                _ladderRanks.Insert(loserIdx, winner); // 승리자가 패배자 위치를 밀고 들어감
+                _ladderRanks.Insert(loserIdx, winner);
                 resultMsg = $"🎉 **{winner}**님이 **{loser}**님을 꺾고 **{loserIdx + 1}위**로 상승했습니다!";
             }
             else
@@ -434,7 +410,6 @@ class Program
         }
     }
 
-    // [/교체멤버추가] 인원 추가 (맨 뒤로 추가되며 첫 교체혈전 찬스 부여)
     private async Task HandleAddMember(SocketSlashCommand command)
     {
         string newName = command.Data.Options.FirstOrDefault(o => o.Name == "이름")?.Value.ToString().Trim() ?? "";
@@ -448,14 +423,12 @@ class Program
             }
 
             _ladderRanks.Add(newName);
-            // 💡 신규 추가된 인원은 찬스를 아직 안 쓴 상태로 설정!
             _firstTimerUsed.Remove(newName);
 
             command.FollowupAsync($"✅ **{newName}**님이 교체혈전 명단 맨 뒷순위({_ladderRanks.Count}위)에 추가되었습니다! 🔰 (신규 찬스 부여됨)");
         }
     }
 
-    // [/교체멤버삭제] 인원 삭제
     private async Task HandleRemoveMember(SocketSlashCommand command)
     {
         string removeName = command.Data.Options.FirstOrDefault(o => o.Name == "이름")?.Value.ToString().Trim() ?? "";
@@ -474,10 +447,9 @@ class Program
         }
     }
 
-    // 현재 주차(Year-Week) 구하는 헬퍼 메서드 (월요일 리셋용)
     private string GetCurrentWeekKey()
     {
-        DateTime now = DateTime.UtcNow.AddHours(9); // KST 기준
+        DateTime now = DateTime.UtcNow.AddHours(9);
         DayOfWeek day = CultureInfo.InvariantCulture.Calendar.GetDayOfWeek(now);
         if (day >= DayOfWeek.Monday && day <= DayOfWeek.Wednesday)
         {
@@ -488,7 +460,7 @@ class Program
     }
 
     // ==========================================
-    // [기존] 내전 및 공수방 이동 기능
+    // [기존] 내전 기능
     // ==========================================
 
     private async Task HandleNaejeon(SocketSlashCommand command)
