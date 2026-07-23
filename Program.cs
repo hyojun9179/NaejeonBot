@@ -14,7 +14,7 @@ class Program
     private readonly Dictionary<ulong, List<ulong>> _naejeonParticipants = new Dictionary<ulong, List<ulong>>();
     private readonly object _participantsLock = new object();
 
-    // ⚔️ 교체혈전 데이터 저장소 및 잠금 객체 (순서 수정 완료)
+    // ⚔️ 교체혈전 데이터 저장소 및 잠금 객체
     private readonly object _ladderLock = new object();
     private readonly List<string> _ladderRanks = new List<string>
     {
@@ -254,12 +254,12 @@ class Program
 
         try
         {
-            // 잠수방으로 이동시키며 마이크(Mute)와 헤드셋(Deafen) 모두 차단
+            // 잠수방으로 이동시키며 마이크(Mute)와 헤드셋(Deaf) 모두 차단
             await user.ModifyAsync(x =>
             {
                 x.Channel = afkChannel;
                 x.Mute = true;
-                x.Deafen = true;
+                x.Deaf = true; // 💡 Deafen -> Deaf로 수정 완료!
             });
 
             await command.FollowupAsync($"💤 **[{afkChannel.Name}]** 채널로 이동되었으며, 마이크 및 헤드셋이 차단되었습니다.");
