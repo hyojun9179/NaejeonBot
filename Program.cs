@@ -4,11 +4,13 @@ using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Discord;
+using Discord.Audio;
 using Discord.WebSocket;
 
 class Program
 {
     private DiscordSocketClient _client;
+    private IAudioClient _audioClient; // 💡 봇 음성 연결 유지용 변수
 
     // 내전 모집 및 진행 관리를 위한 메모리 데이터 저장소
     private readonly Dictionary<ulong, List<ulong>> _naejeonParticipants = new Dictionary<ulong, List<ulong>>();
@@ -229,14 +231,13 @@ class Program
     }
 
     // ==========================================
-    // 💤 봇 잠수방 상주 기능
+    // 💤 봇 잠수방 상주 기능 (수정 완료)
     // ==========================================
     private async Task HandleAfk(SocketSlashCommand command)
     {
         var user = command.User as SocketGuildUser;
         if (user == null) return;
 
-        // 서버에서 '잠수'라는 이름이 포함된 음성 채널 탐색 (없으면 명령어를 실행한 유저가 접속 중인 음성 채널)
         var afkChannel = user.Guild.VoiceChannels.FirstOrDefault(c => c.Name.Contains("잠수")) ?? user.VoiceChannel;
 
         if (afkChannel == null)
@@ -247,16 +248,21 @@ class Program
 
         try
         {
-            // 🤖 봇 자신이 해당 음성 채널에 직접 접속!
-            // selfMute: true (마이크 끔), selfDeaf: true (헤드셋 끔)
-            await afkChannel.ConnectAsync(selfDeaf: true, selfMute: true);
+            // 기존 접속 중인 음성 채널이 있다면 세션 정리
+            if (_audioClient != null)
+            {
+                try { await _audioClient.StopAsync(); } catch { }
+            }
+
+            // 🤖 음성 채널 접속 및 IAudioClient 연결 객체 유지
+            _audioClient = await afkChannel.ConnectAsync(selfDeaf: true, selfMute: true);
 
             await command.FollowupAsync($"💤 **봇이 [{afkChannel.Name}] 채널에 접속했습니다!** 마이크와 헤드셋을 끄고 자리를 유지합니다.");
         }
         catch (Exception ex)
         {
-            await command.FollowupAsync("❌ 봇이 음성 채널에 접속하는 도중 오류가 발생했습니다.", ephemeral: true);
-            Console.WriteLine($"잠수 접속 오류: {ex.Message}");
+            Console.WriteLine($"[잠수 접속 오류]: {ex}");
+            await command.FollowupAsync($"❌ 접속 실패 원인: `{ex.Message}`", ephemeral: true);
         }
     }
 
