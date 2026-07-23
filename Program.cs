@@ -14,21 +14,21 @@ class Program
     private readonly Dictionary<ulong, List<ulong>> _naejeonParticipants = new Dictionary<ulong, List<ulong>>();
     private readonly object _participantsLock = new object();
 
-    // ⚔️ 교체혈전 데이터 저장소 및 잠금 객체
+    // ⚔️ 교체혈전 데이터 저장소 및 잠금 객체 (순서 수정 완료)
     private readonly object _ladderLock = new object();
     private readonly List<string> _ladderRanks = new List<string>
     {
-        "준", "재동", "김치", "대웅", "고래", "지원", "승현", "리스", 
-        "하루비", "혁", "윤", "제이크", "예은", "네보", "투스", 
-        "초원", "우망", "레카", "영식", "우노", "쿠쿠", "효준"
+        "준", "재동", "고래", "김치", "지원", "리스", "대웅", "하루비", 
+        "승현", "혁", "윤", "우망", "제이크", "쿠쿠", "투스", "예은", 
+        "네보", "초원", "레카", "영식", "우노", "효준", "우지"
     };
 
-    // 💡 초기 22명은 이미 '첫 교체혈전 찬스'를 사용한 것으로 설정 (신규 멤버만 찬스 부여)
+    // 💡 초기 멤버는 이미 '첫 교체혈전 찬스'를 사용한 것으로 설정 (신규 멤버만 찬스 부여)
     private readonly HashSet<string> _firstTimerUsed = new HashSet<string>
     {
-        "준", "재동", "김치", "대웅", "고래", "지원", "승현", "리스", 
-        "하루비", "혁", "윤", "제이크", "예은", "네보", "투스", 
-        "초원", "우망", "레카", "영식", "우노", "쿠쿠", "효준"
+        "준", "재동", "고래", "김치", "지원", "리스", "대웅", "하루비", 
+        "승현", "혁", "윤", "우망", "제이크", "쿠쿠", "투스", "예은", 
+        "네보", "초원", "레카", "영식", "우노", "효준", "우지"
     };
 
     // 주차별(주간) 대결 기록: Key = "년도-주차_도전자_피도전자"
@@ -82,80 +82,86 @@ class Program
 
     private Task LogAsync(LogMessage log) { Console.WriteLine(log.ToString()); return Task.CompletedTask; }
 
- // 1. 디스코드 슬래시 명령어 일괄 등록 (수정본)
-private async Task ReadyAsync()
-{
-    try
+    // 1. 디스코드 슬래시 명령어 일괄 등록
+    private async Task ReadyAsync()
     {
-        var commandList = new List<ApplicationCommandProperties>();
+        try
+        {
+            var commandList = new List<ApplicationCommandProperties>();
 
-        // [기존 내전 명령어]
-        commandList.Add(new SlashCommandBuilder()
-            .WithName("내전")
-            .WithDescription("내전 모집글을 생성합니다.")
-            .AddOption("날짜", ApplicationCommandOptionType.String, "내전 진행 날짜 (예: 월요일)", isRequired: true)
-            .AddOption("시간", ApplicationCommandOptionType.String, "내전 시간 (예: 저녁 7시)", isRequired: true)
-            .AddOption("몇시간뒤", ApplicationCommandOptionType.Integer, "몇 시간 뒤에 주최자에게 명단 DM을 보낼지 숫자로만 적으세요", isRequired: true)
-            .AddOption("내용", ApplicationCommandOptionType.String, "상세 내용을 적으세요 (예: 롤 내전 5vs5)", isRequired: true)
-            .Build());
+            // [기존 내전 명령어]
+            commandList.Add(new SlashCommandBuilder()
+                .WithName("내전")
+                .WithDescription("내전 모집글을 생성합니다.")
+                .AddOption("날짜", ApplicationCommandOptionType.String, "내전 진행 날짜 (예: 월요일)", isRequired: true)
+                .AddOption("시간", ApplicationCommandOptionType.String, "내전 시간 (예: 저녁 7시)", isRequired: true)
+                .AddOption("몇시간뒤", ApplicationCommandOptionType.Integer, "몇 시간 뒤에 주최자에게 명단 DM을 보낼지 숫자로만 적으세요", isRequired: true)
+                .AddOption("내용", ApplicationCommandOptionType.String, "상세 내용을 적으세요 (예: 롤 내전 5vs5)", isRequired: true)
+                .Build());
 
-        commandList.Add(new SlashCommandBuilder()
-            .WithName("내전시작")
-            .WithDescription("내전을 시작하고 공수 선택 버튼을 띄웁니다. (대기방 유저 이동용)")
-            .Build());
+            commandList.Add(new SlashCommandBuilder()
+                .WithName("내전시작")
+                .WithDescription("내전을 시작하고 공수 선택 버튼을 띄웁니다. (대기방 유저 이동용)")
+                .Build());
 
-        commandList.Add(new SlashCommandBuilder()
-            .WithName("게임끝")
-            .WithDescription("진행 중인 판을 끝내고 공수방 인원을 대기방으로 한꺼번에 불러옵니다.")
-            .Build());
+            commandList.Add(new SlashCommandBuilder()
+                .WithName("게임끝")
+                .WithDescription("진행 중인 판을 끝내고 공수방 인원을 대기방으로 한꺼번에 불러옵니다.")
+                .Build());
 
-        commandList.Add(new SlashCommandBuilder()
-            .WithName("게임쫑")
-            .WithDescription("오늘 내전 일정을 완전히 종료합니다.")
-            .Build());
+            commandList.Add(new SlashCommandBuilder()
+                .WithName("게임쫑")
+                .WithDescription("오늘 내전 일정을 완전히 종료합니다.")
+                .Build());
 
-        // [⚔️ 교체혈전 명령어]
-        commandList.Add(new SlashCommandBuilder()
-            .WithName("교체순위")
-            .WithDescription("현재 교체혈전 순위 리스트를 확인합니다.")
-            .Build());
+            // [💤 신규 잠수 명령어]
+            commandList.Add(new SlashCommandBuilder()
+                .WithName("잠수")
+                .WithDescription("잠수방으로 이동하고 마이크와 헤드셋을 차단합니다.")
+                .Build());
 
-        commandList.Add(new SlashCommandBuilder()
-            .WithName("교체신청")
-            .WithDescription("상대방에게 교체혈전을 신청합니다.")
-            .AddOption("본인이름", ApplicationCommandOptionType.String, "본인의 이름을 입력하세요", isRequired: true)
-            .AddOption("상대이름", ApplicationCommandOptionType.String, "지목할 상대방의 이름을 입력하세요", isRequired: true)
-            .Build());
+            // [⚔️ 교체혈전 명령어]
+            commandList.Add(new SlashCommandBuilder()
+                .WithName("교체순위")
+                .WithDescription("현재 교체혈전 순위 리스트를 확인합니다.")
+                .Build());
 
-        commandList.Add(new SlashCommandBuilder()
-            .WithName("교체결과")
-            .WithDescription("교체혈전 결과를 입력하여 순위를 갱신합니다. (운영진 전용)")
-            .AddOption("승리자", ApplicationCommandOptionType.String, "승리한 사람 이름", isRequired: true)
-            .AddOption("패배자", ApplicationCommandOptionType.String, "패배한 사람 이름", isRequired: true)
-            .AddOption("첫교체패배여부", ApplicationCommandOptionType.Boolean, "신규 유저가 '첫 교체혈전'에서 패배했나요?", isRequired: false)
-            .Build());
+            commandList.Add(new SlashCommandBuilder()
+                .WithName("교체신청")
+                .WithDescription("상대방에게 교체혈전을 신청합니다.")
+                .AddOption("본인이름", ApplicationCommandOptionType.String, "본인의 이름을 입력하세요", isRequired: true)
+                .AddOption("상대이름", ApplicationCommandOptionType.String, "지목할 상대방의 이름을 입력하세요", isRequired: true)
+                .Build());
 
-        commandList.Add(new SlashCommandBuilder()
-            .WithName("교체멤버추가")
-            .WithDescription("교체혈전 리스트에 새로운 멤버를 추가합니다. (운영진 전용)")
-            .AddOption("이름", ApplicationCommandOptionType.String, "추가할 멤버 이름", isRequired: true)
-            .Build());
+            commandList.Add(new SlashCommandBuilder()
+                .WithName("교체결과")
+                .WithDescription("교체혈전 결과를 입력하여 순위를 갱신합니다. (운영진 전용)")
+                .AddOption("승리자", ApplicationCommandOptionType.String, "승리한 사람 이름", isRequired: true)
+                .AddOption("패배자", ApplicationCommandOptionType.String, "패배한 사람 이름", isRequired: true)
+                .AddOption("첫교체패배여부", ApplicationCommandOptionType.Boolean, "신규 유저가 '첫 교체혈전'에서 패배했나요?", isRequired: false)
+                .Build());
 
-        commandList.Add(new SlashCommandBuilder()
-            .WithName("교체멤버삭제")
-            .WithDescription("교체혈전 리스트에서 멤버를 삭제합니다. (운영진 전용)")
-            .AddOption("이름", ApplicationCommandOptionType.String, "삭제할 멤버 이름", isRequired: true)
-            .Build());
+            commandList.Add(new SlashCommandBuilder()
+                .WithName("교체멤버추가")
+                .WithDescription("교체혈전 리스트에 새로운 멤버를 추가합니다. (운영진 전용)")
+                .AddOption("이름", ApplicationCommandOptionType.String, "추가할 멤버 이름", isRequired: true)
+                .Build());
 
-        // 💡 모든 명령어를 단 1회의 API 요청으로 일괄 덮어쓰기 등록!
-        await _client.BulkOverwriteGlobalApplicationCommandsAsync(commandList.ToArray());
-        Console.WriteLine("🤖 총 9개의 모든 슬래시 명령어 등록 완료!");
+            commandList.Add(new SlashCommandBuilder()
+                .WithName("교체멤버삭제")
+                .WithDescription("교체혈전 리스트에서 멤버를 삭제합니다. (운영진 전용)")
+                .AddOption("이름", ApplicationCommandOptionType.String, "삭제할 멤버 이름", isRequired: true)
+                .Build());
+
+            // 💡 모든 명령어를 단 1회의 API 요청으로 일괄 덮어쓰기 등록!
+            await _client.BulkOverwriteGlobalApplicationCommandsAsync(commandList.ToArray());
+            Console.WriteLine("🤖 총 10개의 모든 슬래시 명령어 등록 완료!");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"명령어 등록 중 오류 발생: {ex.Message}");
+        }
     }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"명령어 등록 중 오류 발생: {ex.Message}");
-    }
-}
 
     // 2. 명령어 분기 처리
     private async Task SlashCommandHandler(SocketSlashCommand command)
@@ -185,6 +191,9 @@ private async Task ReadyAsync()
             case "게임쫑":
                 if (!CheckAdmin(hasAdminRole, command)) return;
                 await HandleNaejeonFinish(command);
+                break;
+            case "잠수":
+                await HandleAfk(command);
                 break;
 
             // 교체혈전 관련 핸들러
@@ -217,6 +226,49 @@ private async Task ReadyAsync()
             return false;
         }
         return true;
+    }
+
+    // ==========================================
+    // 💤 잠수 명령어 로직 구현
+    // ==========================================
+    private async Task HandleAfk(SocketSlashCommand command)
+    {
+        var user = command.User as SocketGuildUser;
+        if (user == null) return;
+
+        // 음성 채널 접속 여부 확인
+        if (user.VoiceChannel == null)
+        {
+            await command.FollowupAsync("❌ 음성 채널에 먼저 접속한 뒤 명령어를 사용해 주세요!", ephemeral: true);
+            return;
+        }
+
+        // 이름에 '잠수'가 포함된 음성 채널 탐색
+        var afkChannel = user.Guild.VoiceChannels.FirstOrDefault(c => c.Name.Contains("잠수"));
+
+        if (afkChannel == null)
+        {
+            await command.FollowupAsync("❌ 서버 내 이름에 '잠수'가 포함된 음성 채널을 찾을 수 없습니다.", ephemeral: true);
+            return;
+        }
+
+        try
+        {
+            // 잠수방으로 이동시키며 마이크(Mute)와 헤드셋(Deafen) 모두 차단
+            await user.ModifyAsync(x =>
+            {
+                x.Channel = afkChannel;
+                x.Mute = true;
+                x.Deafen = true;
+            });
+
+            await command.FollowupAsync($"💤 **[{afkChannel.Name}]** 채널로 이동되었으며, 마이크 및 헤드셋이 차단되었습니다.");
+        }
+        catch (Exception ex)
+        {
+            await command.FollowupAsync("❌ 잠수방 이동 중 오류가 발생했습니다. 봇에게 '멤버 이동', '음성 음소거', '음성 헤드셋 차단' 권한이 있는지 확인해 주세요.", ephemeral: true);
+            Console.WriteLine($"잠수 명령어 오류: {ex.Message}");
+        }
     }
 
     // ==========================================
