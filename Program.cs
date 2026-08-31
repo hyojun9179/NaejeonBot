@@ -12,6 +12,13 @@ class Program
     private readonly ulong AnonymousTargetId = 852349769066348584; // 익명으로 받을 사람
     private readonly ulong IdentifiedTargetId = 1434903209331261611; // 실명(유저정보)으로 받을 사람
 
+    // 🚫 차단할 유저 ID 목록 (희망이에 의해 차단됨)
+    private readonly ulong[] _blockedUsers = 
+    { 
+        1259472924646309956, 
+        1023108668654374962 
+    };
+
     static void Main(string[] args) => new Program().MainAsync().GetAwaiter().GetResult();
 
     public async Task MainAsync()
@@ -33,7 +40,7 @@ class Program
         await _client.LoginAsync(TokenType.Bot, token);
         await _client.StartAsync();
 
-        // 봇 꺼짐 방지용 웹 서버 (포트 리스너 - 기존 코드 유지)
+        // 봇 꺼짐 방지용 웹 서버 (포트 리스너)
         _ = Task.Run(() =>
         {
             try
@@ -67,7 +74,7 @@ class Program
 
     private async Task ReadyAsync()
     {
-        Console.WriteLine($"🤖 봇이 {_client.CurrentUser.Username} 이름으로 연결되었습니다! (DM 전달 모드 작동 중)");
+        Console.WriteLine($"🤖 봇이 {_client.CurrentUser.Username} 이름으로 연결되었습니다! (DM 전달 및 차단 모드 작동 중)");
     }
 
     private async Task MessageReceivedAsync(SocketMessage message)
@@ -78,6 +85,13 @@ class Program
         // 💬 DM(개인 메시지) 채널인지 확인
         if (message.Channel is SocketDMChannel)
         {
+            // 🛑 차단된 유저인지 검사
+            if (_blockedUsers.Contains(message.Author.Id))
+            {
+                await message.Channel.SendMessageAsync("희망이에 의해 메세지 사용이 차단되었습니다.");
+                return; // 여기서 더 이상 진행하지 않고 종료
+            }
+
             string content = message.Content.Trim();
             
             // 사진, 영상 등 첨부파일이 같이 온 경우 처리
