@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("NaejeonBot")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d9663daee6d215dd58235365a84f9632a0a0f2c0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+12a2b5a3d09f7ea62845beaf73f49963c496afe1")]
 [assembly: System.Reflection.AssemblyProductAttribute("NaejeonBot")]
 [assembly: System.Reflection.AssemblyTitleAttribute("NaejeonBot")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
