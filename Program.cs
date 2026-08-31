@@ -10,8 +10,18 @@ class Program
     private DiscordSocketClient _client;
     private Random _rand = new Random();
 
-    private readonly string[] _badWords = { "애미", "고아", "시발", "씨발", "미친" , "창년" ,"보지" ,"자지","니엄마","앙","ㅂ1ㅅ"."ㅄ","ㅂㅅ"};
+    // 🤬 이상한/나쁜 단어 필터 목록
+// 🤬 이상한/나쁜 단어 필터 목록
+    private readonly string[] _badWords = 
+    { 
+        "애미", "고아", "시발", "씨발", "미친", "창년", "보지", "자지", "니엄마", "앙", 
+        "ㅂ1ㅅ", "ㅄ", "ㅂㅅ", "씹새", "죽여버린다", "개새끼", "병신", "존나", "지랄", 
+        "닥쳐", "애비", "느금마", "느금", "새끼", "꺼져", "엠창", "ㅗ", "시발럼", "씨발럼", 
+        "개소리", "엠생", "썅", "개씨발", "좆", "엿먹어", "미친놈", "미친년", "지랄마",
+        "장애", "장애인", "장애우"
+    };
 
+    // 💬 경고 메시지 예시 목록
     private readonly string[] _warnings = 
     {
         "어허 그런말하면 안됩니다...",
@@ -21,9 +31,10 @@ class Program
         "그런말을 하시다니 삐질게요 ㅠ"
     };
 
+    // 🔠 끝말잇기 채널 상태 저장
     private readonly Dictionary<ulong, string> _wordChainChannels = new Dictionary<ulong, string>();
 
-    // 🤖 봇이 알고 있는 끝말잇기 단어장 (대폭 추가 버전)
+    // 🤖 끝말잇기 대폭 확충 단어장
     private readonly List<string> _koreanWords = new List<string> 
     { 
         // ㄱ
@@ -73,6 +84,8 @@ class Program
         "타이어", "택시", "텀블러", "테니스", "토끼", "통조림", "트럭", "트럼펫", "티라노사우루스", "티셔츠", 
         "파인애플", "파리", "피아노", "피자", "필통", "하늘", "호랑이", "호박", "해바라기", "휴대폰"
     };
+
+    // 🎯 DM 저격을 위한 유저 메시지 메모리
     private readonly Dictionary<string, SocketMessage> _lastMessages = new Dictionary<string, SocketMessage>();
 
     static void Main(string[] args) => new Program().MainAsync().GetAwaiter().GetResult();
@@ -87,7 +100,7 @@ class Program
 
         _client.Log += LogAsync;
         _client.Ready += ReadyAsync;
-        _client.MessageReceived += MessageReceivedAsync; 
+        _client.MessageReceived += MessageReceivedAsync;
 
         string token = Environment.GetEnvironmentVariable("DISCORD_TOKEN") ?? "YOUR_BOT_TOKEN_HERE";
         await _client.LoginAsync(TokenType.Bot, token);
@@ -128,7 +141,6 @@ class Program
     {
         Console.WriteLine($"🤖 봇이 {_client.CurrentUser.Username} 이름으로 연결되었습니다!");
 
-        // 🧹 이전 슬래시 명령어 전부 삭제
         try
         {
             await _client.Rest.DeleteAllGlobalCommandsAsync();
@@ -150,6 +162,7 @@ class Program
 
         string content = message.Content.Trim();
 
+        // 1️⃣ 봇 DM 저격
         if (message.Channel is SocketDMChannel)
         {
             string targetName = content;
@@ -174,6 +187,7 @@ class Program
             return;
         }
 
+        // 2️⃣ 서버 채팅 유저 기억
         var guildUser = message.Author as SocketGuildUser;
         if (guildUser != null)
         {
@@ -182,6 +196,7 @@ class Program
             if (!string.IsNullOrEmpty(guildUser.GlobalName)) _lastMessages[guildUser.GlobalName] = message;
         }
 
+        // 3️⃣ 금칙어 감지
         if (_badWords.Any(word => content.Contains(word)))
         {
             string randomWarning = _warnings[_rand.Next(_warnings.Length)];
@@ -189,6 +204,7 @@ class Program
             return; 
         }
 
+        // 4️⃣ 끝말잇기 게임
         if (_wordChainChannels.ContainsKey(message.Channel.Id))
         {
             if (content == "끝말잇기 종료")
